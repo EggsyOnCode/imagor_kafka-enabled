@@ -13,6 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.20.2
 	github.com/rs/cors v1.11.0
 	github.com/stretchr/testify v1.9.0
+	github.com/twmb/franz-go v1.17.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/image v0.19.0
 	golang.org/x/sync v0.8.0
@@ -42,6 +43,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pkg/xattr v0.4.10 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
@@ -49,6 +51,7 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46 // indirect
 	github.com/shabbyrobe/gocovmerge v0.0.0-20230507112040-c3350d9342df // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.8.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.54.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect

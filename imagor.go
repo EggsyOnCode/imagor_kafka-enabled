@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cshum/imagor/imagorpath"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
@@ -27,6 +30,14 @@ const Version = "1.4.15"
 // Loader image loader interface
 type Loader interface {
 	Get(r *http.Request, key string) (*Blob, error)
+}
+
+// type KafkaConfig
+type KafkaConfig struct {
+	// Kafka brokers
+	SeedBroker          []string
+	DefaultConsumeTopic string
+	DefaultProduceTopic string
 }
 
 // Storage image storage interface
@@ -88,11 +99,13 @@ type Imagor struct {
 	BaseParams             string
 	Logger                 *zap.Logger
 	Debug                  bool
+	KafkaClient            *kgo.Client
 
-	g          singleflight.Group
-	sema       *semaphore.Weighted
-	queueSema  *semaphore.Weighted
-	baseParams imagorpath.Params
+	g           singleflight.Group
+	sema        *semaphore.Weighted
+	queueSema   *semaphore.Weighted
+	baseParams  imagorpath.Params
+	kafkaConfig *KafkaConfig
 }
 
 // New create new Imagor
@@ -123,6 +136,17 @@ func New(options ...Option) *Imagor {
 	if app.BaseParams != "" {
 		app.BaseParams = strings.TrimSuffix(app.BaseParams, "/") + "/"
 	}
+
+	// setting up kafka client
+	if app.KafkaClient != nil {
+		client, err := setupKafka(*app.kafkaConfig)
+		if err != nil {
+			app.Logger.Warn("kafka-error", zap.Any("error", err))
+		}
+
+		app.KafkaClient = client
+	}
+
 	return app
 }
 
@@ -829,4 +853,112 @@ func getType(v interface{}) string {
 		return t.Elem().Name()
 	}
 	return t.Name()
+}
+
+func setupKafka(cfg KafkaConfig) (*kgo.Client, error) {
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(cfg.SeedBroker...),               // Kafka broker
+		kgo.DefaultProduceTopic(cfg.DefaultProduceTopic), // Default topic for producing
+		kgo.ConsumerGroup("my-consumer-group"),           // Consumer group for consuming
+		kgo.ConsumeTopics(cfg.DefaultConsumeTopic),       // Topic to consume from
+		kgo.ClientID("my-client-id"),                     // Client ID
+	}
+
+	// Create Kafka client
+	client, err := kgo.NewClient(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// Kafka message structure expected from Kafka topic
+type KafkaMessage struct {
+	ImageParams imagorpath.Params `json:"image_params"`
+	ImageUrl    string            `json:"image_url"`
+}
+
+// ServeKafka listens to Kafka, processes the image, and uploads it to S3
+func (app *Imagor) ServeKafka() {
+
+	kafkaClient := app.KafkaClient
+	defer kafkaClient.Close()
+
+	// Kafka listener loop
+	for {
+		// Fetch messages from Kafka topic
+		fetches := kafkaClient.PollFetches(context.Background())
+		fetches.EachRecord(func(record *kgo.Record) {
+			// Parse the Kafka record
+			var kafkaMessage KafkaMessage
+			err := json.Unmarshal(record.Value, &kafkaMessage)
+			if err != nil {
+				log.Printf("Error parsing Kafka record: %v", err)
+				return
+			}
+
+			// Process the image with the Do function
+			imageBlob, err := app.processImage(kafkaMessage.ImageParams)
+			if err != nil {
+				log.Printf("Error processing image: %v", err)
+				return
+			}
+
+			fName := fmt.Sprintf("output-%s.jpg", time.Now().Format("2006-01-02-15-04-05"))
+			saveBlobToFile(imageBlob, fName)
+			// Upload the image to S3
+			// err = app.uploadToS3(imageBlob, kafkaMessage.ImageParams.Image)
+			// if err != nil {
+			// 	log.Printf("Error uploading to S3: %v", err)
+			// }
+		})
+	}
+}
+
+// processImage uses the Do function to perform image operations
+func (app *Imagor) processImage(params imagorpath.Params) (*Blob, error) {
+	// Simulate an HTTP request (context) for image processing
+	ctx, cancel := context.WithTimeout(context.Background(), app.RequestTimeout)
+	defer cancel()
+
+	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Call the Do function with request and params
+	blob, err := app.Do(r, params)
+	if err != nil {
+		log.Printf("Error during image processing: %v", err)
+		return nil, err
+	}
+
+	return blob, nil
+}
+
+func saveBlobToFile(blob *Blob, filePath string) error {
+	// Ensure the directory exists
+	dir := filepath.Dir(filePath)
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("failed to create directories: %v", err)
+	}
+
+	// Create the file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %v", err)
+	}
+	defer file.Close()
+
+	r , _ , err := blob.NewReader()
+
+	// Write the blob's content to the file
+	_, err = io.Copy(file, r)
+	if err != nil {
+		return fmt.Errorf("failed to write blob to file: %v", err)
+	}
+
+	fmt.Printf("Successfully saved blob to %s\n", filePath)
+	return nil
 }

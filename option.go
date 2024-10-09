@@ -1,9 +1,10 @@
 package imagor
 
 import (
+	"time"
+
 	"github.com/cshum/imagor/imagorpath"
 	"go.uber.org/zap"
-	"time"
 )
 
 // Option imagor option
@@ -225,5 +226,12 @@ func WithSigner(signer imagorpath.Signer) Option {
 		if signer != nil {
 			app.Signer = signer
 		}
+	}
+}
+
+// WithKafkaBrokerAddr with kafka broker address
+func WithKafkaBrokerAddr(cfg KafkaConfig) Option {
+	return func(app *Imagor) {
+		app.kafkaConfig = &cfg
 	}
 }

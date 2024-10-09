@@ -67,6 +67,9 @@ func NewImagor(
 		imagorSignerTruncate         = fs.Int("imagor-signer-truncate", 0, "imagor URL signature truncate at length")
 		imagorStoragePathStyle       = fs.String("imagor-storage-path-style", "original", "imagor storage path style: original, digest")
 		imagorResultStoragePathStyle = fs.String("imagor-result-storage-path-style", "original", "imagor result storage path style: original, digest, suffix")
+		kafkaBrokerAddr              = fs.String("kafka-seed-broker", "original", "address pointing to the Kafka broker")
+		kafkaConsumeTopic            = fs.String("kafka-consume-topic", "original", "default topic to consume from")
+		kafkaProduceTopic            = fs.String("kafka-produce-topic", "original", "default topic to produce to")
 
 		options, logger, isDebug = applyOptions(fs, cb, append(funcs, baseConfig...)...)
 
@@ -91,6 +94,12 @@ func NewImagor(
 		resultHasher = imagorpath.SuffixResultStorageHasher
 	} else if strings.ToLower(*imagorResultStoragePathStyle) == "size" {
 		resultHasher = imagorpath.SizeSuffixResultStorageHasher
+	}
+
+	kafkaCfg := &imagor.KafkaConfig{
+		SeedBroker:          []string{*kafkaBrokerAddr},
+		DefaultConsumeTopic: *kafkaConsumeTopic,
+		DefaultProduceTopic: *kafkaProduceTopic,
 	}
 
 	return imagor.New(append(
@@ -119,6 +128,7 @@ func NewImagor(
 		imagor.WithUnsafe(*imagorUnsafe),
 		imagor.WithLogger(logger),
 		imagor.WithDebug(isDebug),
+		imagor.WithKafkaBrokerAddr(*kafkaCfg), // kafka config added as a new option
 	)...)
 }
 
