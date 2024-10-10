@@ -881,6 +881,10 @@ type KafkaMessage struct {
 	ImageUrl    string            `json:"image_url"`
 }
 
+type KafkaMessageResponse struct {
+	UpdatedImageUrl string `json:"updated_image_url"`
+}
+
 // ServeKafka listens to Kafka, processes the image, and uploads it to S3
 func (app *Imagor) ServeKafka() {
 	app.Logger.Log(zapcore.Level(0), "Starting Kafka listener")
@@ -910,12 +914,40 @@ func (app *Imagor) ServeKafka() {
 
 			fName := fmt.Sprintf("output-%s.jpg", time.Now().Format("2006-01-02-15-04-05"))
 			saveBlobToFile(imageBlob, fName)
+
+			url := "hello"
+			go app.WriteResToKafka(url, app.kafkaConfig.DefaultProduceTopic)
+
 			// Upload the image to S3
 			// err = app.uploadToS3(imageBlob, kafkaMessage.ImageParams.Image)
 			// if err != nil {
 			// 	log.Printf("Error uploading to S3: %v", err)
 			// }
 		})
+	}
+}
+
+func (app *Imagor) WriteResToKafka(url string, topic string) {
+	// Create the KafkaMessage
+	kafkaRes := KafkaMessageResponse{
+		UpdatedImageUrl: url,
+	}
+
+	msgBytes, err := json.Marshal(kafkaRes)
+	if err != nil {
+		log.Fatalf("Failed to serialize Kafka message to JSON: %v", err)
+	}
+
+	// Prepare the Kafka message
+	record := &kgo.Record{
+		Topic: topic,
+		Value: msgBytes,
+	}
+
+	// Send the message to Kafka
+	if err := app.KafkaClient.ProduceSync(context.Background(), record).FirstErr(); err != nil {
+		log.Fatalf("Failed to send message to Kafka: %v", err)
+		return
 	}
 }
 
@@ -956,6 +988,9 @@ func saveBlobToFile(blob *Blob, filePath string) error {
 	defer file.Close()
 
 	r, _, err := blob.NewReader()
+	if err != nil {
+		return fmt.Errorf("failed to get blob reader: %v", err)
+	}
 
 	// Write the blob's content to the file
 	_, err = io.Copy(file, r)
