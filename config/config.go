@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"flag"
 	"fmt"
+	"log"
 	"runtime"
 	"strings"
 	"time"
@@ -95,6 +96,10 @@ func NewImagor(
 	} else if strings.ToLower(*imagorResultStoragePathStyle) == "size" {
 		resultHasher = imagorpath.SizeSuffixResultStorageHasher
 	}
+
+	log.Printf("Kafka Broker Address: %s", *kafkaBrokerAddr)
+	log.Printf("Kafka Consume Topic: %s", *kafkaConsumeTopic)
+	log.Printf("Kafka Produce Topic: %s", *kafkaProduceTopic)
 
 	kafkaCfg := &imagor.KafkaConfig{
 		SeedBroker:          []string{*kafkaBrokerAddr},

@@ -20,6 +20,7 @@ import (
 	"github.com/cshum/imagor/imagorpath"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 )
@@ -138,7 +139,7 @@ func New(options ...Option) *Imagor {
 	}
 
 	// setting up kafka client
-	if app.KafkaClient != nil {
+	if app.KafkaClient == nil {
 		client, err := setupKafka(*app.kafkaConfig)
 		if err != nil {
 			app.Logger.Warn("kafka-error", zap.Any("error", err))
@@ -157,6 +158,8 @@ func (app *Imagor) Startup(ctx context.Context) (err error) {
 			return
 		}
 	}
+	// start kafka client
+	go app.ServeKafka()
 	return
 }
 
@@ -880,9 +883,10 @@ type KafkaMessage struct {
 
 // ServeKafka listens to Kafka, processes the image, and uploads it to S3
 func (app *Imagor) ServeKafka() {
+	app.Logger.Log(zapcore.Level(0), "Starting Kafka listener")
 
+	log.Printf("kafka client %v \n", app.KafkaClient.Broker(0))
 	kafkaClient := app.KafkaClient
-	defer kafkaClient.Close()
 
 	// Kafka listener loop
 	for {
@@ -951,7 +955,7 @@ func saveBlobToFile(blob *Blob, filePath string) error {
 	}
 	defer file.Close()
 
-	r , _ , err := blob.NewReader()
+	r, _, err := blob.NewReader()
 
 	// Write the blob's content to the file
 	_, err = io.Copy(file, r)
