@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cshum/imagor/metrics/prometheusmetrics"
+	"github.com/cshum/imagor/storage"
 
 	"github.com/cshum/imagor"
 	"github.com/cshum/imagor/imagorpath"
@@ -71,6 +72,8 @@ func NewImagor(
 		kafkaBrokerAddr              = fs.String("kafka-seed-broker", "original", "address pointing to the Kafka broker")
 		kafkaConsumeTopic            = fs.String("kafka-consume-topic", "original", "default topic to consume from")
 		kafkaProduceTopic            = fs.String("kafka-produce-topic", "original", "default topic to produce to")
+		gcpProjetID                  = fs.String("gcp-project-id", "original", "Google Cloud Platform project ID")
+		gcpBucketName                = fs.String("gcp-bucket-name", "original", "Google Cloud Platform bucket name")
 
 		options, logger, isDebug = applyOptions(fs, cb, append(funcs, baseConfig...)...)
 
@@ -100,11 +103,19 @@ func NewImagor(
 	log.Printf("Kafka Broker Address: %s", *kafkaBrokerAddr)
 	log.Printf("Kafka Consume Topic: %s", *kafkaConsumeTopic)
 	log.Printf("Kafka Produce Topic: %s", *kafkaProduceTopic)
+	log.Printf("GCP Project ID: %s", *gcpProjetID)
+	log.Printf("GCP Bucket Name: %s", *gcpBucketName)
 
 	kafkaCfg := &imagor.KafkaConfig{
 		SeedBroker:          []string{*kafkaBrokerAddr},
 		DefaultConsumeTopic: *kafkaConsumeTopic,
 		DefaultProduceTopic: *kafkaProduceTopic,
+	}
+
+	// GCP bucket config
+	gcpBucketCfg := &storage.GCPBucketConfig{
+		ProjectID:  *gcpProjetID,
+		BucketName: *gcpBucketName,
 	}
 
 	return imagor.New(append(
@@ -133,7 +144,8 @@ func NewImagor(
 		imagor.WithUnsafe(*imagorUnsafe),
 		imagor.WithLogger(logger),
 		imagor.WithDebug(isDebug),
-		imagor.WithKafkaBrokerAddr(*kafkaCfg), // kafka config added as a new option
+		imagor.WithKafkaBrokerAddr(*kafkaCfg),  // kafka config added as a new option
+		imagor.WithGCPBucketCfg(*gcpBucketCfg), // GCP bucket config added as a new option
 	)...)
 }
 

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/cshum/imagor/imagorpath"
+	"github.com/cshum/imagor/storage"
 	"go.uber.org/zap"
 )
 
@@ -233,5 +234,11 @@ func WithSigner(signer imagorpath.Signer) Option {
 func WithKafkaBrokerAddr(cfg KafkaConfig) Option {
 	return func(app *Imagor) {
 		app.kafkaConfig = &cfg
+	}
+}
+
+func WithGCPBucketCfg(cfg storage.GCPBucketConfig) Option {
+	return func(app *Imagor) {
+		app.gcpBucketConfig = &cfg
 	}
 }

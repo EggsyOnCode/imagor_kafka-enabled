@@ -5,7 +5,7 @@ test:
 	go clean -testcache && CGO_CFLAGS_ALLOW=-Xpreprocessor go test -coverprofile=profile.cov $(shell go list ./... | grep -v /examples/)
 
 dev: build
-	./bin/imagor -debug -imagor-unsafe -kafka-seed-broker=localhost:9092 -kafka-consume-topic=test-topic -kafka-produce-topic=image-processing
+	./bin/imagor -debug -imagor-unsafe -kafka-seed-broker=localhost:9092 -kafka-consume-topic=test-topic -kafka-produce-topic=image-processing -gcp-project-id=spring-firefly-407617 -gcp-bucket-name=img-bucket-69
 
 help: build
 	./bin/imagor -h

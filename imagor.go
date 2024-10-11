@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cshum/imagor/imagorpath"
+	"github.com/cshum/imagor/storage"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -107,6 +108,7 @@ type Imagor struct {
 	queueSema   *semaphore.Weighted
 	baseParams  imagorpath.Params
 	kafkaConfig *KafkaConfig
+	gcpBucketConfig *storage.GCPBucketConfig
 }
 
 // New create new Imagor
@@ -913,10 +915,23 @@ func (app *Imagor) ServeKafka() {
 			}
 
 			fName := fmt.Sprintf("output-%s.jpg", time.Now().Format("2006-01-02-15-04-05"))
-			saveBlobToFile(imageBlob, fName)
 
-			url := "hello"
-			go app.WriteResToKafka(url, app.kafkaConfig.DefaultProduceTopic)
+			// push img to gcp bucket
+			uploader, err := storage.NewClientUploader("spring-firefly-407617", "img-bucket-69")
+			if err != nil {
+				log.Printf("Error creating GCP client: %v", err)
+			}
+			byteArrFile, err := imageBlob.ReadAll()
+			if err != nil {
+				log.Printf("err reaing file %v", err)
+			}
+			file := storage.ConvertBlobToMultipartFile(byteArrFile)
+			if err := uploader.UploadFile(file, fName); err != nil {
+				log.Printf("Error uploading to GCP: %v", err)
+			}
+
+			// saveBlobToFile(imageBlob, fName)
+			go app.WriteResToKafka(fName, app.kafkaConfig.DefaultProduceTopic)
 
 			// Upload the image to S3
 			// err = app.uploadToS3(imageBlob, kafkaMessage.ImageParams.Image)
