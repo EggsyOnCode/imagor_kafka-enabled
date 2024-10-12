@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -99,6 +100,32 @@ func NewImagor(
 	} else if strings.ToLower(*imagorResultStoragePathStyle) == "size" {
 		resultHasher = imagorpath.SizeSuffixResultStorageHasher
 	}
+
+	if *kafkaBrokerAddr == "original" {
+		*kafkaBrokerAddr = os.Getenv("KAFKA_BROKER_ADDR")
+	}
+
+	if *kafkaConsumeTopic == "original" {
+		*kafkaConsumeTopic = os.Getenv("KAFKA_CONSUME_TOPIC");
+	}
+
+	if *kafkaProduceTopic == "original" {
+		*kafkaProduceTopic = os.Getenv("KAFKA_PRODUCE_TOPIC");
+	}
+
+	if *gcpProjetID == "original" {
+		*gcpProjetID = os.Getenv("GCP_PROJECT_ID");
+	}
+
+	if *gcpBucketName == "original" {
+		*gcpBucketName = os.Getenv("GCP_BUCKET_NAME");
+	}
+
+	// KafkaBrokerAddr := os.Getenv("KAFKA_BROKER_ADDR")
+	// KafkaConsumeTopic := os.Getenv("KAFKA_CONSUME_TOPIC")
+	// KafkaProduceTopic := os.Getenv("KAFKA_PRODUCE_TOPIC")
+	// GcpProjectID := os.Getenv("GCP_PROJECT_ID")
+	// GcpBucketName := os.Getenv("GCP_BUCKET_NAME")
 
 	log.Printf("Kafka Broker Address: %s", *kafkaBrokerAddr)
 	log.Printf("Kafka Consume Topic: %s", *kafkaConsumeTopic)

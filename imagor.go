@@ -103,11 +103,11 @@ type Imagor struct {
 	Debug                  bool
 	KafkaClient            *kgo.Client
 
-	g           singleflight.Group
-	sema        *semaphore.Weighted
-	queueSema   *semaphore.Weighted
-	baseParams  imagorpath.Params
-	kafkaConfig *KafkaConfig
+	g               singleflight.Group
+	sema            *semaphore.Weighted
+	queueSema       *semaphore.Weighted
+	baseParams      imagorpath.Params
+	kafkaConfig     *KafkaConfig
 	gcpBucketConfig *storage.GCPBucketConfig
 }
 
@@ -198,12 +198,12 @@ func (app *Imagor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	blob, err := checkBlob(app.Do(r, p))
+	blob, err := checkBlob(app.Do(r, p, nil))
 	if err == ErrInvalid || err == ErrSignatureMismatch {
 		if path2, e := url.QueryUnescape(path); e == nil {
 			path = path2
 			p = imagorpath.Parse(path)
-			blob, err = checkBlob(app.Do(r, p))
+			blob, err = checkBlob(app.Do(r, p, nil))
 		}
 	}
 	if err != nil {
@@ -253,7 +253,7 @@ func (app *Imagor) Serve(ctx context.Context, p imagorpath.Params) (*Blob, error
 		return nil, err
 	}
 	p.Path = "" // make sure path generated
-	return app.Do(r, p)
+	return app.Do(r, p, nil)
 }
 
 // ServeBlob serves imagor Blob with context and params, skipping loader and storages
@@ -269,8 +269,8 @@ func (app *Imagor) ServeBlob(
 	return app.Serve(ctx, p)
 }
 
-// Do executes imagor operations
-func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err error) {
+// Do executes imagor operations: an optional param for Blob is provided for direct processing wihtout having to download hte img for url
+func (app *Imagor) Do(r *http.Request, p imagorpath.Params, imageBlob *Blob) (blob *Blob, err error) {
 	var ctx = withContext(r.Context())
 	var cancel func()
 	if app.RequestTimeout > 0 {
@@ -278,6 +278,7 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 		contextDefer(ctx, cancel)
 		r = r.WithContext(ctx)
 	}
+
 	if !(app.Unsafe && p.Unsafe) && app.Signer != nil && p.Path != "" {
 		if hash := app.Signer.Sign(p.Path); hash != p.Hash {
 			err = ErrSignatureMismatch
@@ -287,14 +288,17 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 			return
 		}
 	}
+
 	var isPathChanged bool
 	if app.BaseParams != "" {
 		p = imagorpath.Apply(p, app.BaseParams)
 		isPathChanged = true
 	}
+
 	var hasFormat, hasPreview, isRaw bool
 	var filters = p.Filters
 	p.Filters = nil
+
 	for _, f := range filters {
 		switch f.Name {
 		case "expire":
@@ -323,6 +327,7 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 			p.Filters = append(p.Filters, f)
 		}
 	}
+
 	// auto WebP / AVIF
 	if !hasFormat && (app.AutoWebP || app.AutoAVIF) {
 		accept := r.Header.Get("Accept")
@@ -342,17 +347,21 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 			isPathChanged = true
 		}
 	}
+
 	if isPathChanged || p.Path == "" {
 		p.Path = imagorpath.GeneratePath(p)
 	}
+
 	if p.Width < 0 {
 		p.Width = -p.Width
 		p.HFlip = !p.HFlip
 	}
+
 	if p.Height < 0 {
 		p.Height = -p.Height
 		p.VFlip = !p.VFlip
 	}
+
 	var resultKey string
 	if p.Image != "" && !hasPreview {
 		if app.ResultStoragePathStyle != nil {
@@ -361,16 +370,25 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 			resultKey = p.Path
 		}
 	}
+
 	load := func(image string) (*Blob, error) {
+		if imageBlob != nil {
+			return imageBlob, nil // Return the provided image blob
+		}
+		// If imageBlob is not provided, fallback to loading it from storage
 		blob, _, err := app.loadStorage(r, image)
 		return blob, err
 	}
+
 	return app.suppress(ctx, resultKey, func(ctx context.Context, cb func(*Blob, error)) (*Blob, error) {
+		// If a resultKey exists and the blob isn't raw, attempt to load the result from storage
 		if resultKey != "" && !isRaw {
 			if blob := app.loadResult(r, resultKey, p.Image); blob != nil {
 				return blob, nil
 			}
 		}
+
+		// Queue management for request throttling
 		if app.queueSema != nil && !isRaw {
 			if !app.queueSema.TryAcquire(1) {
 				err = ErrTooManyRequests
@@ -381,6 +399,8 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 			}
 			defer app.queueSema.Release(1)
 		}
+
+		// Semaphore management for concurrency control
 		if app.sema != nil && !isRaw {
 			if err = app.sema.Acquire(ctx, 1); err != nil {
 				if app.Debug {
@@ -390,13 +410,23 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 			}
 			defer app.sema.Release(1)
 		}
+
+		// Load the image blob from provided data or storage
 		var shouldSave bool
-		if blob, shouldSave, err = app.loadStorage(r, p.Image); err != nil {
+		if imageBlob == nil {
+			blob, shouldSave, err = app.loadStorage(r, p.Image)
+		} else {
+			blob = imageBlob
+			shouldSave = false // Since blob is provided, no need to save from storage
+		}
+
+		if err != nil {
 			if app.Debug {
 				app.Logger.Debug("load", zap.Any("params", p), zap.Error(err))
 			}
 			return blob, err
 		}
+
 		var doneSave chan struct{}
 		if shouldSave {
 			doneSave = make(chan struct{})
@@ -409,10 +439,9 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 				close(doneSave)
 			}(blob)
 		}
-		if isBlobEmpty(blob) {
-			return blob, err
-		}
-		if !isRaw {
+
+		// Process the image with each processor
+		if !isBlobEmpty(blob) && !isRaw {
 			var cancel func()
 			if app.ProcessTimeout > 0 {
 				ctx, cancel = context.WithTimeout(ctx, app.ProcessTimeout)
@@ -451,16 +480,22 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 				}
 			}
 		}
+
+		// Wait for save operation if needed
 		if shouldSave {
-			// make sure storage saved before response and result storage
 			<-doneSave
 		}
+
 		cb(blob, err)
 		ctx = detachContext(ctx)
+
+		// Save the processed result to result storage
 		if err == nil && !isBlobEmpty(blob) && resultKey != "" && !isRaw &&
 			len(app.ResultStorages) > 0 {
 			app.save(ctx, app.ResultStorages, resultKey, blob)
 		}
+
+		// Cleanup in case of error
 		if err != nil && shouldSave {
 			var storageKey = p.Image
 			if app.StoragePathStyle != nil {
@@ -468,6 +503,7 @@ func (app *Imagor) Do(r *http.Request, p imagorpath.Params) (blob *Blob, err err
 			}
 			app.del(ctx, app.Storages, storageKey)
 		}
+
 		return blob, err
 	})
 }
@@ -907,8 +943,24 @@ func (app *Imagor) ServeKafka() {
 				return
 			}
 
+			// setting up GCP client
+			uploader, err := storage.NewClientUploader("spring-firefly-407617", "img-bucket-69")
+			if err != nil {
+				log.Printf("Error creating GCP client: %v", err)
+			}
+
+			// Get File
+			fileByteSilce, err := uploader.GetFileAsBytes(kafkaMessage.ImageUrl)
+			if err != nil {
+				log.Printf("Error getting file: %v", err)
+				return
+			}
+
+			// convert byte slice to Blob
+			fileBlob := NewBlobFromBytes(fileByteSilce)
+
 			// Process the image with the Do function
-			imageBlob, err := app.processImage(kafkaMessage.ImageParams)
+			imageBlob, err := app.processImage(kafkaMessage.ImageParams, fileBlob)
 			if err != nil {
 				log.Printf("Error processing image: %v", err)
 				return
@@ -916,28 +968,19 @@ func (app *Imagor) ServeKafka() {
 
 			fName := fmt.Sprintf("output-%s.jpg", time.Now().Format("2006-01-02-15-04-05"))
 
-			// push img to gcp bucket
-			uploader, err := storage.NewClientUploader("spring-firefly-407617", "img-bucket-69")
-			if err != nil {
-				log.Printf("Error creating GCP client: %v", err)
-			}
 			byteArrFile, err := imageBlob.ReadAll()
 			if err != nil {
 				log.Printf("err reaing file %v", err)
 			}
 			file := storage.ConvertBlobToMultipartFile(byteArrFile)
+
+			// Upload the image to S3
 			if err := uploader.UploadFile(file, fName); err != nil {
 				log.Printf("Error uploading to GCP: %v", err)
 			}
 
 			// saveBlobToFile(imageBlob, fName)
 			go app.WriteResToKafka(fName, app.kafkaConfig.DefaultProduceTopic)
-
-			// Upload the image to S3
-			// err = app.uploadToS3(imageBlob, kafkaMessage.ImageParams.Image)
-			// if err != nil {
-			// 	log.Printf("Error uploading to S3: %v", err)
-			// }
 		})
 	}
 }
@@ -967,7 +1010,8 @@ func (app *Imagor) WriteResToKafka(url string, topic string) {
 }
 
 // processImage uses the Do function to perform image operations
-func (app *Imagor) processImage(params imagorpath.Params) (*Blob, error) {
+// fileBlob is the blob to be processed
+func (app *Imagor) processImage(params imagorpath.Params, fileBlob *Blob) (*Blob, error) {
 	// Simulate an HTTP request (context) for image processing
 	ctx, cancel := context.WithTimeout(context.Background(), app.RequestTimeout)
 	defer cancel()
@@ -978,7 +1022,7 @@ func (app *Imagor) processImage(params imagorpath.Params) (*Blob, error) {
 	}
 
 	// Call the Do function with request and params
-	blob, err := app.Do(r, params)
+	blob, err := app.Do(r, params, fileBlob)
 	if err != nil {
 		log.Printf("Error during image processing: %v", err)
 		return nil, err

@@ -75,6 +75,11 @@ COPY --from=builder /go/bin/imagor /usr/local/bin/imagor
 ENV VIPS_WARNING=0
 ENV MALLOC_ARENA_MAX=2
 ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so
+ENV KAFKA_BROKER_ADDR=""
+ENV KAFKA_CONSUME_TOPIC="test-topic"
+ENV KAFKA_PRODUCE_TOPIC="image-processing"
+ENV GCP_PROJECT_ID="spring-firefly-407617"
+ENV GCP_BUCKET_NAME="img-bucket-69"
 
 ENV PORT 8000
 

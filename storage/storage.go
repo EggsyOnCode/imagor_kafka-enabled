@@ -103,6 +103,31 @@ func (c *ClientUploader) GetFile(object, destFileName string) error {
 	return nil
 }
 
+// GetFileAsBytes downloads an object from the bucket and returns it as a byte array
+func (c *ClientUploader) GetFileAsBytes(object string) ([]byte, error) {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*50)
+	defer cancel()
+
+	log.Printf("downloading file from bucket...")
+
+	// Create a new reader for the object in the bucket
+	rc, err := c.cl.Bucket(c.BucketName).Object(c.UploadPath + object).NewReader(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Object(%q).NewReader: %v", object, err)
+	}
+	defer rc.Close()
+
+	// Read the object data into a byte buffer
+	buf := new(bytes.Buffer)
+	if _, err := io.Copy(buf, rc); err != nil {
+		return nil, fmt.Errorf("io.Copy: %v", err)
+	}
+
+	fmt.Printf("File %v downloaded as byte array\n", object)
+	return buf.Bytes(), nil
+}
+
 // Close is part of the multipart.File interface
 func (b *BlobFile) Close() error {
 	// You can implement any cleanup logic here if needed
